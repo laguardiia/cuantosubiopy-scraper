@@ -1,0 +1,28 @@
+name: Scraper diario
+
+on:
+  schedule:
+    # 09:00 UTC = 05:00 o 06:00 en Paraguay según horario de verano.
+    - cron: "0 9 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  scraper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Clonar el repo
+        uses: actions/checkout@v4
+
+      - name: Instalar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Correr el scraper diario
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python cron_diario.py
