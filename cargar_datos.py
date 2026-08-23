@@ -154,17 +154,20 @@ def insertar_precio(conn, producto_tienda_id: int, precio: int) -> None:
         )
 
 
-def cargar_biggie(conn, ruta_csv: str) -> None:
+def cargar_productos_biggie(conn, productos: list[dict]) -> None:
+    """
+    Carga una lista de productos de Biggie (dicts con las mismas claves
+    que devuelve scraper_biggie.fetch_category/fetch_catalogo_completo).
+    No depende de un CSV -- se puede llamar directo con datos en memoria
+    (por eso lo usa cron_diario.py para no pasar por el disco).
+    """
     supermercado_id = asegurar_supermercado(conn, "biggie")
 
-    with open(ruta_csv, encoding="utf-8") as f:
-        filas = list(csv.DictReader(f))
-
-    total = len(filas)
-    for i, fila in enumerate(filas, 1):
+    total = len(productos)
+    for i, fila in enumerate(productos, 1):
         ean = fila.get("ean") or None
         precio = fila.get("precio")
-        if not precio or not precio.isdigit():
+        if not precio or not str(precio).isdigit():
             continue
 
         producto_id = buscar_o_crear_producto(
@@ -174,13 +177,13 @@ def cargar_biggie(conn, ruta_csv: str) -> None:
             fila.get("marca"),
             categoria=fila.get("categoria"),
             imagen_url=fila.get("imagen_url"),
-            preferir_imagen=True, 
+            preferir_imagen=True,  # Biggie manda: su imagen siempre gana
         )
         pt_id = upsert_producto_tienda(
             conn,
             producto_id=producto_id,
             supermercado_id=supermercado_id,
-            id_externo=ean or fila["nombre"], 
+            id_externo=ean or fila["nombre"],  # Biggie no trae un id interno propio
             url=None,
             nombre_en_tienda=fila["nombre"],
             marca_en_tienda=fila.get("marca"),
@@ -196,14 +199,19 @@ def cargar_biggie(conn, ruta_csv: str) -> None:
     print(f"Listo: {total} filas de Biggie procesadas.")
 
 
-def cargar_superseis(conn, ruta_csv: str) -> None:
+def cargar_productos_superseis(conn, productos: list[dict]) -> None:
+    """
+    Carga una lista de productos de Superseis (dicts con las mismas
+    claves que devuelve scraper_superseis.fetch_category/fetch_catalogo_completo).
+    Si los dicts no traen 'ean'/'marca' (pasada rapida, sin --enrich),
+    el producto igual se actualiza de precio -- el producto_id que ya
+    tenia de una carga anterior con EAN se mantiene (ver upsert_producto_tienda:
+    COALESCE(existente, nuevo), nunca lo pisa con None).
+    """
     supermercado_id = asegurar_supermercado(conn, "superseis")
 
-    with open(ruta_csv, encoding="utf-8") as f:
-        filas = list(csv.DictReader(f))
-
-    total = len(filas)
-    for i, fila in enumerate(filas, 1):
+    total = len(productos)
+    for i, fila in enumerate(productos, 1):
         ean = fila.get("ean") or None
         precio = fila.get("precio")
         if not precio or not str(precio).isdigit():
@@ -214,9 +222,9 @@ def cargar_superseis(conn, ruta_csv: str) -> None:
             ean,
             fila["nombre"],
             fila.get("marca"),
-            categoria=None, 
+            categoria=None,  # Superseis no tiene una taxonomía limpia como Biggie
             imagen_url=fila.get("imagen_url"),
-            preferir_imagen=False,
+            preferir_imagen=False,  # Superseis solo completa si no había imagen
         )
         pt_id = upsert_producto_tienda(
             conn,
@@ -236,6 +244,20 @@ def cargar_superseis(conn, ruta_csv: str) -> None:
 
     conn.commit()
     print(f"Listo: {total} filas de Superseis procesadas.")
+
+
+def cargar_biggie(conn, ruta_csv: str) -> None:
+    """Wrapper para uso manual desde la terminal: lee un CSV y carga."""
+    with open(ruta_csv, encoding="utf-8") as f:
+        filas = list(csv.DictReader(f))
+    cargar_productos_biggie(conn, filas)
+
+
+def cargar_superseis(conn, ruta_csv: str) -> None:
+    """Wrapper para uso manual desde la terminal: lee un CSV y carga."""
+    with open(ruta_csv, encoding="utf-8") as f:
+        filas = list(csv.DictReader(f))
+    cargar_productos_superseis(conn, filas)
 
 
 if __name__ == "__main__":
