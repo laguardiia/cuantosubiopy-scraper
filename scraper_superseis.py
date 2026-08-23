@@ -1,6 +1,9 @@
 """
 Scraper de Superseis (superseis.com.py), plataforma OpenCart.
 
+No tiene API JSON como Biggie -- hay que parsear el HTML de las
+paginas de listado de categoria.
+
 Cada producto en el listado trae:
   - data-product-id   -> id interno de OpenCart
   - href del <a>       -> URL del producto (para la pasada lenta despues)
@@ -23,6 +26,7 @@ import os
 import re
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 from bs4 import BeautifulSoup
@@ -229,20 +233,44 @@ def guardar_csv(productos: list[dict], nombre_archivo: str) -> None:
     print(f"Guardados {len(productos)} productos en {ruta_completa}")
 
 
-def fetch_catalogo_completo(url_home: str = "https://www.superseis.com.py/", delay: float = 0.5) -> list[dict]:
-    """Trae el HTML de la home, encuentra todas las categorías hoja, y las recorre todas."""
+def fetch_catalogo_completo(
+    url_home: str = "https://www.superseis.com.py/",
+    delay: float = 0.5,
+    max_workers: int = 5,
+) -> list[dict]:
+    """
+    Trae el HTML de la home, encuentra todas las categorías hoja, y las
+    recorre EN PARALELO (varios hilos a la vez) para no tardar horas --
+    Superseis tiene varios cientos de categorías hoja, y recorrerlas una
+    por una en fila es lo que hacía que tardara tanto.
+
+    max_workers controla cuántas categorías se piden al mismo tiempo.
+    Más alto = más rápido, pero más agresivo con el servidor. 5 es un
+    punto medio razonable -- subilo con cuidado si Superseis empieza a
+    devolver errores de conexión seguidos (señal de que te está limitando).
+    """
     resp = requests.get(url_home, headers=HEADERS, timeout=15)
     resp.raise_for_status()
 
     categorias = extraer_categorias_hoja(resp.text)
-    print(f"Encontradas {len(categorias)} categorías hoja")
+    print(f"Encontradas {len(categorias)} categorías hoja (scrapeando con {max_workers} hilos en paralelo)")
 
     todos_los_productos = []
-    for i, cat_url in enumerate(categorias, 1):
-        print(f"[{i}/{len(categorias)}] {cat_url}")
-        productos = fetch_category(cat_url, delay=delay)
-        todos_los_productos.extend(productos)
-        time.sleep(delay)
+    completados = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futuros = {
+            executor.submit(fetch_category, cat_url, delay): cat_url
+            for cat_url in categorias
+        }
+        for futuro in as_completed(futuros):
+            cat_url = futuros[futuro]
+            completados += 1
+            try:
+                productos = futuro.result()
+                todos_los_productos.extend(productos)
+                print(f"[{completados}/{len(categorias)}] {cat_url}: {len(productos)} productos")
+            except requests.RequestException as e:
+                print(f"[{completados}/{len(categorias)}] ERROR en {cat_url}: {e}")
 
     return todos_los_productos
 
