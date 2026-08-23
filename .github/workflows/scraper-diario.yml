@@ -2,14 +2,16 @@ name: Scraper diario
 
 on:
   schedule:
-    # 09:00 UTC = 05:00 o 06:00 en Paraguay según horario de verano.
-    - cron: "0 9 * * *"
-  workflow_dispatch: {}
+    # Corre todos los lunes a las 09:00 UTC (~05:00-06:00 en Paraguay
+    # según horario de verano). Semanal alcanza y sobra para ver
+    # tendencias de precio -- no hace falta granularidad diaria.
+    - cron: "0 9 * * 1"
+  workflow_dispatch: {}  # permite correrlo a mano desde la pestaña "Actions" de GitHub, para probar
 
 jobs:
   scraper:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     steps:
       - name: Clonar el repo
         uses: actions/checkout@v4
